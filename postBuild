@@ -1,0 +1,4 @@
+#!/bin/bash
+set -euxo pipefail
+
+python -m ipykernel install --sys-prefix --name python3 --display-name "Python 3"
