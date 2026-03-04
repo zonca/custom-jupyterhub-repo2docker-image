@@ -98,17 +98,17 @@ jobs:
           trap 'kill ${PF_PID}' EXIT
 
           for _ in $(seq 1 60); do
-            if curl -sf http://127.0.0.1:8000/hub/health >/dev/null; then
+            if curl --max-time 5 -sf http://127.0.0.1:8000/hub/health >/dev/null; then
               break
             fi
             sleep 2
           done
 
-          curl -sf -X POST \
+          curl --max-time 10 -sf -X POST \
             -H "Authorization: token ${HUB_API_TOKEN}" \
             http://127.0.0.1:8000/hub/api/users/ci-user >/dev/null || true
 
-          curl -sf -X POST \
+          curl --max-time 10 -sf -X POST \
             -H "Authorization: token ${HUB_API_TOKEN}" \
             http://127.0.0.1:8000/hub/api/users/ci-user/server >/dev/null || true
 
@@ -117,8 +117,9 @@ jobs:
             -l component=singleuser-server,hub.jupyter.org/username=ci-user \
             --timeout=8m
 
+          READY="false"
           for _ in $(seq 1 60); do
-            READY=$(curl -sf \
+            READY=$(curl --max-time 10 -sf \
               -H "Authorization: token ${HUB_API_TOKEN}" \
               http://127.0.0.1:8000/hub/api/users/ci-user | jq -r '.servers[""].ready // "false"')
             if [ "${READY}" = "true" ]; then
