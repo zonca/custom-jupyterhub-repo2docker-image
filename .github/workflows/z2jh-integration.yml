@@ -51,16 +51,15 @@ jobs:
               type: sqlite-memory
             config:
               JupyterHub:
+                authenticator_class: dummy
                 api_tokens:
                   ci-admin-token-change-me: admin
               Authenticator:
+                allow_all: true
                 admin_users:
                   - admin
-
-          auth:
-            type: dummy
-            dummy:
-              password: "ci-password"
+              DummyAuthenticator:
+                password: "ci-password"
 
           singleuser:
             image:
