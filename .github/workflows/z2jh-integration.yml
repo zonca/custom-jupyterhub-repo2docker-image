@@ -54,6 +54,9 @@ jobs:
                 authenticator_class: dummy
                 api_tokens:
                   ci-admin-token-change-me: admin
+              KubeSpawner:
+                start_timeout: 600
+                delete_stopped_pods: false
               Authenticator:
                 allow_all: true
                 admin_users:
@@ -62,6 +65,7 @@ jobs:
                 password: "ci-password"
 
           singleuser:
+            startTimeout: 600
             image:
               name: ghcr.io/${{ github.repository }}
               tag: latest
@@ -115,7 +119,7 @@ jobs:
           kubectl -n "${HUB_NAMESPACE}" wait \
             --for=condition=Ready pod \
             -l component=singleuser-server,hub.jupyter.org/username=ci-user \
-            --timeout=8m
+            --timeout=12m
 
           READY="false"
           for _ in $(seq 1 60); do
