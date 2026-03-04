@@ -1,0 +1,147 @@
+name: Z2JH Integration Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  HUB_NAMESPACE: jhub-test
+  HUB_API_TOKEN: ci-admin-token-change-me
+
+jobs:
+  z2jh-kind-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Create Kind cluster
+        uses: helm/kind-action@v1.10.0
+        with:
+          cluster_name: jhub-ci
+
+      - name: Pull published image
+        run: |
+          docker pull "ghcr.io/${{ github.repository }}:latest"
+
+      - name: Load image into Kind
+        run: |
+          kind load docker-image "ghcr.io/${{ github.repository }}:latest" --name jhub-ci
+
+      - name: Deploy JupyterHub with Helm
+        run: |
+          cat > /tmp/config-ci.yaml <<'YAML'
+          proxy:
+            secretToken: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+          hub:
+            db:
+              type: sqlite-memory
+            config:
+              JupyterHub:
+                api_tokens:
+                  ci-admin-token-change-me: admin
+              Authenticator:
+                admin_users:
+                  - admin
+
+          auth:
+            type: dummy
+            dummy:
+              password: "ci-password"
+
+          singleuser:
+            image:
+              name: ghcr.io/${{ github.repository }}
+              tag: latest
+              pullPolicy: IfNotPresent
+            cmd: jupyterhub-singleuser
+            defaultUrl: /lab
+
+          prePuller:
+            hook:
+              enabled: false
+            continuous:
+              enabled: false
+          YAML
+
+          helm repo add jupyterhub https://jupyterhub.github.io/helm-chart/
+          helm repo update
+          helm upgrade --install jhub jupyterhub/jupyterhub \
+            --namespace "${HUB_NAMESPACE}" \
+            --create-namespace \
+            --values /tmp/config-ci.yaml \
+            --wait --timeout 15m
+
+      - name: Wait for hub and proxy
+        run: |
+          kubectl -n "${HUB_NAMESPACE}" rollout status deploy/hub --timeout=5m
+          kubectl -n "${HUB_NAMESPACE}" rollout status deploy/proxy --timeout=5m
+
+      - name: Spawn and validate a real single-user server
+        run: |
+          set -euo pipefail
+
+          kubectl -n "${HUB_NAMESPACE}" port-forward svc/proxy-public 8000:80 >/tmp/pf.log 2>&1 &
+          PF_PID=$!
+          trap 'kill ${PF_PID}' EXIT
+
+          for _ in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8000/hub/health >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+
+          curl -sf -X POST \
+            -H "Authorization: token ${HUB_API_TOKEN}" \
+            http://127.0.0.1:8000/hub/api/users/ci-user >/dev/null || true
+
+          curl -sf -X POST \
+            -H "Authorization: token ${HUB_API_TOKEN}" \
+            http://127.0.0.1:8000/hub/api/users/ci-user/server >/dev/null || true
+
+          kubectl -n "${HUB_NAMESPACE}" wait \
+            --for=condition=Ready pod \
+            -l component=singleuser-server,hub.jupyter.org/username=ci-user \
+            --timeout=8m
+
+          for _ in $(seq 1 60); do
+            READY=$(curl -sf \
+              -H "Authorization: token ${HUB_API_TOKEN}" \
+              http://127.0.0.1:8000/hub/api/users/ci-user | jq -r '.servers[""].ready // "false"')
+            if [ "${READY}" = "true" ]; then
+              break
+            fi
+            sleep 2
+          done
+
+          test "${READY}" = "true"
+
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/user/ci-user/)
+          if [ "${CODE}" != "200" ] && [ "${CODE}" != "302" ]; then
+            echo "Unexpected HTTP code from user server route: ${CODE}"
+            exit 1
+          fi
+
+      - name: Dump diagnostics on failure
+        if: failure()
+        run: |
+          kubectl get pods -A -o wide
+          kubectl -n "${HUB_NAMESPACE}" get events --sort-by=.metadata.creationTimestamp || true
+          kubectl -n "${HUB_NAMESPACE}" logs deploy/hub --tail=200 || true
+          kubectl -n "${HUB_NAMESPACE}" logs deploy/proxy --tail=200 || true
+          kubectl -n "${HUB_NAMESPACE}" get pods -l component=singleuser-server -o name | \
+            xargs -r -I {} kubectl -n "${HUB_NAMESPACE}" logs {} --tail=200 || true
