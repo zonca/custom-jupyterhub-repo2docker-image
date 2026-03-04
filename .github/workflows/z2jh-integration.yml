@@ -67,6 +67,8 @@ jobs:
 
           singleuser:
             startTimeout: 600
+            uid: 1000
+            fsGid: 1000
             image:
               name: ghcr.io/${{ github.repository }}
               tag: latest
