@@ -52,6 +52,7 @@ jobs:
             config:
               JupyterHub:
                 authenticator_class: dummy
+                cleanup_servers: false
                 api_tokens:
                   ci-admin-token-change-me: admin
               KubeSpawner:
@@ -147,5 +148,8 @@ jobs:
           kubectl -n "${HUB_NAMESPACE}" get events --sort-by=.metadata.creationTimestamp || true
           kubectl -n "${HUB_NAMESPACE}" logs deploy/hub --tail=200 || true
           kubectl -n "${HUB_NAMESPACE}" logs deploy/proxy --tail=200 || true
+          kubectl -n "${HUB_NAMESPACE}" describe pod jupyter-ci-user || true
+          kubectl -n "${HUB_NAMESPACE}" logs pod/jupyter-ci-user -c notebook --tail=200 || true
+          kubectl -n "${HUB_NAMESPACE}" logs pod/jupyter-ci-user -c notebook --previous --tail=200 || true
           kubectl -n "${HUB_NAMESPACE}" get pods -l component=singleuser-server -o name | \
             xargs -r -I {} kubectl -n "${HUB_NAMESPACE}" logs {} --tail=200 || true
