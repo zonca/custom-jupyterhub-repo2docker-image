@@ -102,6 +102,12 @@ singleuser:
   defaultUrl: /lab
 ```
 
+Why this matters:
+- `singleuser.cmd` is the process Kubernetes starts in the user pod.
+- `jupyterhub-singleuser` is the JupyterHub-aware entrypoint that registers the server with Hub, handles Hub auth/token flow, and integrates with Hub/proxy lifecycle checks.
+- If `singleuser.cmd` is omitted, chart/image defaults may start a different command (or inherit an unexpected `CMD`/entrypoint), causing user pods to run but not become usable from Hub.
+- Setting it explicitly avoids those startup mismatches across base-image or chart changes.
+
 Deploy:
 
 ```bash
