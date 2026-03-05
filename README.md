@@ -1,35 +1,74 @@
 # Custom JupyterHub repo2docker Image Template
 
-Template repository to build a JupyterHub-ready single-user image with `repo2docker` and GitHub Actions.
+Build and publish a JupyterHub-ready single-user image using `repo2docker` and GitHub Actions, without maintaining a `Dockerfile`.
 
-This is designed for Zero to JupyterHub (Z2JH) deployments and publishes images to GHCR.
+This template targets Zero to JupyterHub (Z2JH) and publishes to GHCR.
 
-## Features
+## What This Repository Provides
 
-- No `Dockerfile` needed for standard use cases
-- Primary dependency interface is `environment.yml`
-- CI smoke tests for JupyterHub compatibility
-- Publish tags: `latest`, commit SHA, and `YYYY-MM-DD-<shortsha>`
-- Cosign keyless signatures
-- SBOM generation and provenance attestation
-- Weekly scheduled rebuilds for base image updates
+- `repo2docker`-based image builds from `environment.yml`
+- Automated publish to GHCR with reproducible tags
+- Image signing with Cosign (keyless)
+- SBOM artifact + build provenance attestation
+- Separate Z2JH integration workflow running on a real Kind+Helm JupyterHub
 
 ## Repository Layout
 
-```
+```text
 .
-├── .github/workflows/image.yml
-├── environment.yml
-├── postBuild
-├── tests/test_image.py
+├── .github/workflows/
+│   ├── image.yml               # build, test, publish, sign, attest
+│   └── z2jh-integration.yml    # real JupyterHub integration test (workflow_run)
+├── environment.yml             # primary dependency spec
+├── postBuild                   # optional post-build customization hook
+├── tests/test_image.py         # container smoke tests
 └── README.md
 ```
 
-## Customize The Environment
+## CI/CD Workflows
 
-Edit `environment.yml` and push to trigger a new image build.
+### 1) `image.yml` (build and publish)
 
-Example additions:
+Triggers:
+- push to `main`
+- pull request to `main` (test job only, no publish)
+- weekly schedule
+- manual dispatch
+
+Outputs:
+- `ghcr.io/<owner>/<repo>:latest`
+- `ghcr.io/<owner>/<repo>:sha-<12-char-sha>`
+- `ghcr.io/<owner>/<repo>:YYYY-MM-DD-<7-char-sha>`
+
+Security artifacts:
+- cosign signatures
+- SBOM (`spdx-json`) uploaded as workflow artifact
+- provenance attestation pushed to registry
+
+### 2) `z2jh-integration.yml` (real Hub integration)
+
+Triggers:
+- `workflow_run` after `Build and Publish repo2docker Image` completes
+- manual dispatch
+
+Run conditions:
+- upstream workflow conclusion is `success`
+- upstream branch is `main`
+
+What it validates:
+- deploys JupyterHub on Kind with Helm
+- pulls published image from GHCR and loads it into Kind
+- verifies Hub/proxy readiness
+- validates authenticated Hub API calls
+- validates user creation and spawn request submission
+
+Note: this workflow currently validates Hub control-plane + API behavior. It does not gate on full single-user server readiness.
+
+## Customizing Dependencies
+
+Edit `environment.yml`, commit, and push.
+
+Example:
 
 ```yaml
 dependencies:
@@ -40,29 +79,30 @@ dependencies:
       - your-package
 ```
 
-## GitHub Actions + GHCR Setup
+Use `postBuild` for commands that should run after environment creation.
 
-The workflow uses `GITHUB_TOKEN` to publish to `ghcr.io/<owner>/<repo>`.
+## GitHub Setup
 
-Repository settings:
+Repository settings needed:
+1. `Settings -> Actions -> General`: allow read/write workflow permissions
+2. `Settings -> Packages`: choose package visibility policy
 
-1. `Settings -> Actions -> General`: allow workflow permissions to read and write.
-2. `Settings -> Packages`: ensure your package visibility is what you want.
+The workflows use `${{ secrets.GITHUB_TOKEN }}` for GHCR authentication.
 
-## Use In Zero To JupyterHub
+## Using the Image in Z2JH
 
-Set image + command in your Helm values:
+Use explicit command override for compatibility:
 
 ```yaml
 singleuser:
   image:
     name: ghcr.io/YOUR_ORG/custom-jupyterhub-repo2docker-image
-    tag: latest
+    tag: 2026-03-04-abcdef0
   cmd: jupyterhub-singleuser
   defaultUrl: /lab
 ```
 
-Then upgrade your release:
+Deploy:
 
 ```bash
 helm upgrade --install jhub jupyterhub/jupyterhub \
@@ -71,7 +111,8 @@ helm upgrade --install jhub jupyterhub/jupyterhub \
   --values config.yaml
 ```
 
-## Notes
+## Operational Notes
 
-- Explicitly setting `singleuser.cmd: jupyterhub-singleuser` avoids startup mismatches.
-- For reproducibility in production, pin to a date-based tag instead of `latest`.
+- Prefer date-based tags in production instead of `latest`.
+- `singleuser.cmd: jupyterhub-singleuser` is required for predictable Hub startup behavior.
+- If you need strict single-user readiness gating in CI, add a second integration job with readiness-specific assertions.
