@@ -1,5 +1,7 @@
 # Custom JupyterHub repo2docker Image Template
 
+**For a gentle, beginner-friendly introduction, read the [accompanying blog post on zonca.dev](https://zonca.dev/posts/2026-03-04-custom-jupyterhub-repo2docker-image).**
+
 Build and publish a JupyterHub-ready single-user image using `repo2docker` and GitHub Actions, without maintaining a `Dockerfile`.
 
 This template targets Zero to JupyterHub (Z2JH) and publishes to GHCR.
