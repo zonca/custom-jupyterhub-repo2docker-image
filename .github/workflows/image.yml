@@ -47,6 +47,7 @@ jobs:
             --image-name "${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.sha_tag }}" \
             .
           docker run --rm \
+            --entrypoint "" \
             -v "${{ github.workspace }}/tests/test_image.py:/tmp/test_image.py" \
             "${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.sha_tag }}" \
             python /tmp/test_image.py
