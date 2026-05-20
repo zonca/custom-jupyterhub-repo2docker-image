@@ -23,6 +23,7 @@ This template targets Zero to JupyterHub (Z2JH) and publishes to GHCR.
 │   └── z2jh-integration.yml    # real JupyterHub integration test (workflow_run)
 ├── environment.yml             # primary dependency spec
 ├── postBuild                   # optional post-build customization hook
+├── start                       # sets CMD to jupyterhub-singleuser (JupyterHub-ready out of the box)
 ├── tests/test_image.py         # container smoke tests
 └── README.md
 ```
@@ -93,22 +94,24 @@ The workflows use `${{ secrets.GITHUB_TOKEN }}` for GHCR authentication.
 
 ## Using the Image in Z2JH
 
-Use explicit command override for compatibility:
+The image's default CMD is `jupyterhub-singleuser` (set via the `start` script), so no command override is needed in your Z2JH config:
 
 ```yaml
 singleuser:
   image:
     name: ghcr.io/YOUR_ORG/custom-jupyterhub-repo2docker-image
     tag: 2026-03-04-abcdef0
-  cmd: jupyterhub-singleuser
   defaultUrl: /lab
 ```
 
-Why this matters:
-- `singleuser.cmd` is the process Kubernetes starts in the user pod.
+You can still set `cmd: jupyterhub-singleuser` explicitly if you prefer, but it is no longer required.
+
+### Why `jupyterhub-singleuser` as the default CMD?
+
 - `jupyterhub-singleuser` is the JupyterHub-aware entrypoint that registers the server with Hub, handles Hub auth/token flow, and integrates with Hub/proxy lifecycle checks.
-- If `singleuser.cmd` is omitted, chart/image defaults may start a different command (or inherit an unexpected `CMD`/entrypoint), causing user pods to run but not become usable from Hub.
-- Setting it explicitly avoids those startup mismatches across base-image or chart changes.
+- Without it, the image's default CMD from repo2docker is `jupyter notebook`, which does not register with Hub — user pods will appear to run but won't be usable from Hub.
+- By baking it into the image via the `start` script, the image is self-contained and JupyterHub-ready without requiring deploy-time configuration.
+- The `start` script is repo2docker's standard mechanism for overriding the entrypoint: repo2docker sets `R2D_ENTRYPOINT` to the `start` script, which becomes the image's effective CMD.
 
 Deploy:
 
@@ -122,5 +125,5 @@ helm upgrade --install jhub jupyterhub/jupyterhub \
 ## Operational Notes
 
 - Prefer date-based tags in production instead of `latest`.
-- `singleuser.cmd: jupyterhub-singleuser` is required for predictable Hub startup behavior.
+- The `start` script ensures the image defaults to `jupyterhub-singleuser`, so `singleuser.cmd` is not required in Z2JH config.
 - If you need strict single-user readiness gating in CI, add a second integration job with readiness-specific assertions.
