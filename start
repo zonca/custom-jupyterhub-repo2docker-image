@@ -1,0 +1,4 @@
+#!/bin/bash
+# repo2docker entrypoint: run jupyterhub-singleuser so the image
+# is JupyterHub-ready out of the box (no cmd override needed in Z2JH config).
+exec jupyterhub-singleuser "$@"
