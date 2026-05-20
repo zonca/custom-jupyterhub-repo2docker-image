@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Smoke tests for a repo2docker-built JupyterHub image."""
 
+import os
 import shutil
 import subprocess
 import sys
@@ -32,9 +33,40 @@ def test_singleuser_binary():
     exe = shutil.which("jupyterhub-singleuser")
     if not exe:
         raise RuntimeError("jupyterhub-singleuser not found in PATH")
-    result = run(["jupyterhub-singleuser", "--help"])
-    assert_ok(result, "jupyterhub-singleuser --help")
-    print("jupyterhub-singleuser is available")
+    result = run(["jupyterhub-singleuser", "--version"])
+    assert_ok(result, "jupyterhub-singleuser --version")
+    print(f"jupyterhub-singleuser is available (version {result.stdout.strip()})")
+
+
+def test_singleuser_starts():
+    """Verify jupyterhub-singleuser starts and loads the JupyterHub extension.
+
+    We can't do a full integration test here (that requires a running Hub),
+    but we can confirm it starts, loads extensions, and attempts to connect
+    to JupyterHub — which proves the image is JupyterHub-ready.
+    """
+    os.environ["JUPYTERHUB_API_URL"] = "http://localhost:0"
+    os.environ["JUPYTERHUB_SERVICE_PREFIX"] = "/"
+    os.environ["JUPYTERHUB_SERVICE_URL"] = "http://localhost:0"
+
+    proc = subprocess.Popen(
+        ["jupyterhub-singleuser", "--ip=0.0.0.0", "--port=8888"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        stdout, _ = proc.communicate(timeout=15)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        stdout, _ = proc.communicate()
+
+    if "JupyterHubSingleUser" in stdout or "jupyterhub single-user" in stdout.lower():
+        print("jupyterhub-singleuser starts and loads JupyterHub extension")
+    else:
+        raise RuntimeError(
+            f"jupyterhub-singleuser did not start as expected:\n{stdout[-500:]}"
+        )
 
 
 def test_jupyter_binaries():
@@ -48,6 +80,7 @@ def main():
     test_python()
     test_imports()
     test_singleuser_binary()
+    test_singleuser_starts()
     test_jupyter_binaries()
     print("All image smoke tests passed")
 
